@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'screens/home_screen.dart';
+import 'services/firebase_service.dart';
 import 'theme/app_theme.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Firebase & Auth session (with graceful offline/mock fallback)
+  await FirebaseService().initialize();
+
   runApp(const FluxShareApp());
 }
 

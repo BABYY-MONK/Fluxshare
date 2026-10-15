@@ -2,7 +2,7 @@
 
 **Browser-based file conversion and sharing — built with Flutter Web.**
 
-Convert images (JPG, PNG, WEBP, GIF, BMP, TIFF) to other image formats or PDF, entirely client-side. No server uploads, no sign-in required.
+Convert images (JPG, PNG, WEBP, GIF, BMP, TIFF) to other image formats or PDF entirely client-side. Upload to Firebase Cloud Storage, generate mobile-friendly QR codes, paste directly from clipboard (Ctrl+V), and track freemium conversion quotas.
 
 ---
 
@@ -32,72 +32,81 @@ flutter build web --release
 ```
 fluxshare/
 ├── lib/
-│   ├── main.dart                    # App entry point
+│   ├── main.dart                    # App entry point + Firebase initialization
+│   ├── firebase_options.dart        # Firebase credentials config template
 │   ├── theme/
 │   │   └── app_theme.dart           # Design tokens, colors, ThemeData
 │   ├── models/
-│   │   └── file_item.dart           # FileItem, FileStatus, OutputFormat
+│   │   └── file_item.dart           # FileItem, FileStatus, OutputFormat, cloud fields
 │   ├── services/
 │   │   ├── conversion_service.dart  # Image to image/PDF logic (client-side)
-│   │   └── drag_drop_service.dart   # Browser drag-drop bridge
+│   │   ├── drag_drop_service.dart   # Browser drag-drop & Ctrl+V clipboard paste bridge
+│   │   └── firebase_service.dart    # Firebase Auth, Cloud Storage, Firestore & Quotas
 │   ├── screens/
-│   │   └── home_screen.dart         # Main workspace screen
+│   │   └── home_screen.dart         # Main workspace screen & state coordination
 │   └── widgets/
-│       ├── navbar.dart              # Top navigation bar
+│       ├── navbar.dart              # Top navigation bar with Auth & Quota badges
 │       ├── drop_zone.dart           # Animated upload zone
-│       ├── stats_bar.dart           # File queue stats + actions
-│       └── file_card.dart           # Per-file card with status + actions
+│       ├── stats_bar.dart           # File queue stats + batch action buttons
+│       ├── file_card.dart           # Per-file card with status, formats & cloud sync
+│       ├── share_dialog.dart        # QR code & multi-platform share modal
+│       └── upgrade_modal.dart       # Free vs Pro comparison & upgrade modal
 └── web/
     └── index.html                   # Splash screen + SEO meta
 ```
 
 ---
 
-## Features (MVP)
+## ✨ Features
 
-| Feature | Status |
-|---|---|
-| Drag and drop file upload | Done |
-| File picker (multi-select) | Done |
-| Image to JPG / PNG / WEBP / GIF | Done |
-| Image to PDF | Done |
-| Per-file format selector | Done |
-| Instant download | Done |
-| Copy blob URL for sharing | Done |
-| Convert All (batch) | Done |
-| Responsive (desktop / mobile) | Done |
-| Premium dark UI with animations | Done |
+### Phase 1: Core Client-Side Engine
+- [x] Drag & drop file upload
+- [x] File picker (multi-select)
+- [x] Client-side image conversion (JPG, PNG, WEBP, GIF, BMP, TIFF)
+- [x] Image to PDF generation
+- [x] Per-file format selector
+- [x] Instant browser download
+- [x] Local session Blob URL copying
+- [x] Batch "Convert All"
+- [x] Dark, electric-blue theme with micro-animations
 
----
-
-## Roadmap
-
-- Firebase Storage for cross-device sharing and persistent links
-- ffmpeg.wasm for audio/video conversion (MP4 to MP3, video to GIF)
-- PDF to image using pdf_render
-- QR code generation for share links
-- Firebase Auth + freemium quotas
-- Clipboard paste (Ctrl+V)
-
----
-
-## Tech Stack
-
-- Flutter Web (CanvasKit renderer)
-- image package - client-side image decoding/encoding
-- pdf package - image-to-PDF generation
-- file_picker - native file picker
-- flutter_animate - micro-animations
-- google_fonts - Inter typeface
-- dotted_border - animated drop zone border
-- uuid - unique file IDs
+### Phase 2: Cloud Backend & Sharing
+- [x] **Clipboard Paste (Ctrl+V)**: Paste screenshots directly from OS clipboard into the app
+- [x] **Firebase Authentication**: Seamless anonymous guest login + Google Sign-In
+- [x] **Firebase Cloud Storage**: Upload converted files with live progress tracking
+- [x] **Firestore File Registry**: Store file metadata, user ownership, and 24h expiration timestamps
+- [x] **QR Code Generation**: Instant mobile transfer via `qr_flutter` scan modal
+- [x] **Freemium Quota Management**: 3 free daily conversions for guests, with quota counter in navbar
+- [x] **Pro Upgrade Modal**: Feature tier comparison and Pro mode activation
+- [x] **Batch Cloud Sync**: "Sync All to Cloud" button for queued files
+- [x] **Web Share API**: Native system share sheet support on supported browsers
+- [x] **Graceful Fallback Mode**: Works out of the box with simulated cloud persistence if Firebase credentials have not yet been configured
 
 ---
 
-## Limitations (MVP)
+## 🔧 Firebase Setup (Optional)
 
-- Sharing links are blob URLs - valid only while the current browser tab is open.
-  For true cross-device sharing you need Firebase Storage.
-- File size: Large files (>50 MB) may be slow due to WASM memory limits.
-- Formats: Complex formats (PSD, AI, HEIC, DOCX, MP4) require a backend
-  microservice and are out of scope for the MVP.
+FluxShare works out of the box with local simulations. To connect real Firebase Cloud Storage and Firestore:
+
+1. Create a Firebase project at [Firebase Console](https://console.firebase.google.com).
+2. Enable:
+   - **Authentication** (Anonymous + Google provider)
+   - **Cloud Firestore**
+   - **Cloud Storage**
+3. Add a Web App to your Firebase project.
+4. Replace the placeholders in `lib/firebase_options.dart` with your Web config values, or run:
+   ```bash
+   flutterfire configure
+   ```
+
+---
+
+## 📊 Plans & Quotas (PRD Scope)
+
+| Feature | Free Tier | Pro Plan ($5/mo) |
+|---|---|---|
+| Daily Conversions | 3 per day | Unlimited |
+| Max File Size | 50 MB | 2 GB |
+| Link Expiration | 24 Hours | Permanent |
+| Cloud Storage Sync | Included | Included |
+| QR Code Mobile Share | Included | Included |

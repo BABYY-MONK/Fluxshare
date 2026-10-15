@@ -40,7 +40,14 @@ class FileItem {
   Uint8List? convertedBytes;
   FileStatus status;
   String? errorMessage;
-  String? blobUrl; // session-scoped blob URL for sharing
+  String? blobUrl; // session-scoped blob URL for local download/share
+
+  // ── Phase 2: Cloud Sharing & Firebase Metadata ──
+  String? cloudDownloadUrl;
+  bool isUploadedToCloud;
+  bool isUploadingToCloud;
+  double uploadProgress;
+  DateTime? expiresAt;
 
   FileItem({
     required this.id,
@@ -52,7 +59,15 @@ class FileItem {
     this.status = FileStatus.ready,
     this.errorMessage,
     this.blobUrl,
+    this.cloudDownloadUrl,
+    this.isUploadedToCloud = false,
+    this.isUploadingToCloud = false,
+    this.uploadProgress = 0.0,
+    this.expiresAt,
   });
+
+  /// The active URL to share: prefers persistent Cloud URL, falls back to session Blob URL.
+  String? get shareableUrl => cloudDownloadUrl ?? blobUrl;
 
   /// Human-readable file size string.
   String get formattedSize {

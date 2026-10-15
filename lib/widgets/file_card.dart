@@ -3,6 +3,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../models/file_item.dart';
 import '../theme/app_theme.dart';
+import 'share_dialog.dart';
 
 /// A single file card shown in the workspace grid.
 class FileCard extends StatefulWidget {
@@ -12,6 +13,7 @@ class FileCard extends StatefulWidget {
   final VoidCallback onDownload;
   final VoidCallback onCopyLink;
   final VoidCallback onRemove;
+  final VoidCallback onUploadToCloud;
 
   const FileCard({
     super.key,
@@ -21,6 +23,7 @@ class FileCard extends StatefulWidget {
     required this.onDownload,
     required this.onCopyLink,
     required this.onRemove,
+    required this.onUploadToCloud,
   });
 
   @override
@@ -45,7 +48,7 @@ class _FileCardState extends State<FileCard>
   String get _statusLabel => switch (f.status) {
         FileStatus.ready      => 'Ready',
         FileStatus.converting => 'Converting…',
-        FileStatus.done       => 'Converted',
+        FileStatus.done       => f.isUploadedToCloud ? 'Cloud Synced' : 'Converted',
         FileStatus.error      => 'Error',
       };
 
@@ -56,6 +59,14 @@ class _FileCardState extends State<FileCard>
     }
     if (f.originalFormat == 'pdf') return Icons.picture_as_pdf_rounded;
     return Icons.insert_drive_file_rounded;
+  }
+
+  void _openShareModal() {
+    ShareDialog.show(
+      context,
+      file: f,
+      onUploadToCloud: widget.onUploadToCloud,
+    );
   }
 
   // ─── Build ────────────────────────────────────────────────────────────────
@@ -118,7 +129,7 @@ class _FileCardState extends State<FileCard>
         ),
         const SizedBox(width: 12),
 
-        // File name + extension badge
+        // File name + size
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -133,10 +144,27 @@ class _FileCardState extends State<FileCard>
                   color: AppTheme.textPrimary,
                 ),
               ),
-              Text(
-                f.formattedSize,
-                style: GoogleFonts.inter(
-                    fontSize: 12, color: AppTheme.textSecondary),
+              Row(
+                children: [
+                  Text(
+                    f.formattedSize,
+                    style: GoogleFonts.inter(
+                        fontSize: 12, color: AppTheme.textSecondary),
+                  ),
+                  if (f.isUploadedToCloud) ...[
+                    const SizedBox(width: 6),
+                    const Icon(Icons.cloud_done_rounded,
+                        size: 13, color: AppTheme.success),
+                    const SizedBox(width: 3),
+                    Text(
+                      'Cloud',
+                      style: GoogleFonts.inter(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.success),
+                    ),
+                  ],
+                ],
               ),
             ],
           ),
@@ -165,17 +193,51 @@ class _FileCardState extends State<FileCard>
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Processing…',
+            'Converting locally in browser…',
             style: GoogleFonts.inter(
                 fontSize: 12, color: AppTheme.textSecondary),
           ),
           const SizedBox(height: 8),
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
+            child: const LinearProgressIndicator(
               backgroundColor: AppTheme.bgElevated,
-              valueColor:
-                  const AlwaysStoppedAnimation<Color>(AppTheme.warning),
+              valueColor: AlwaysStoppedAnimation<Color>(AppTheme.warning),
+              minHeight: 4,
+            ),
+          ),
+        ],
+      );
+    }
+
+    if (f.isUploadingToCloud) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Uploading to Firebase Cloud…',
+                style: GoogleFonts.inter(
+                    fontSize: 12, color: AppTheme.accentGlow),
+              ),
+              Text(
+                '${(f.uploadProgress * 100).toInt()}%',
+                style: GoogleFonts.inter(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.accentGlow),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: f.uploadProgress > 0 ? f.uploadProgress : null,
+              backgroundColor: AppTheme.bgElevated,
+              valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.accent),
               minHeight: 4,
             ),
           ),
@@ -186,8 +248,7 @@ class _FileCardState extends State<FileCard>
     if (f.status == FileStatus.error) {
       return Text(
         f.errorMessage ?? 'Conversion failed.',
-        style:
-            GoogleFonts.inter(fontSize: 12, color: AppTheme.error),
+        style: GoogleFonts.inter(fontSize: 12, color: AppTheme.error),
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
       );
@@ -211,6 +272,16 @@ class _FileCardState extends State<FileCard>
               ),
             ),
           ),
+          if (f.expiresAt != null) ...[
+            const SizedBox(width: 8),
+            Text(
+              'Expires 24h',
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                color: AppTheme.textSecondary,
+              ),
+            ),
+          ],
         ],
       );
     }
@@ -258,10 +329,17 @@ class _FileCardState extends State<FileCard>
           ),
           const SizedBox(width: 8),
           _OutlineButton(
-            label: 'Copy Link',
-            icon: Icons.link_rounded,
-            onTap: widget.onCopyLink,
+            label: 'Share & QR',
+            icon: Icons.qr_code_2_rounded,
+            onTap: _openShareModal,
           ),
+          const SizedBox(width: 8),
+          if (!f.isUploadedToCloud && !f.isUploadingToCloud)
+            _OutlineButton(
+              label: 'Cloud Sync',
+              icon: Icons.cloud_upload_rounded,
+              onTap: widget.onUploadToCloud,
+            ),
         ],
       );
     }
@@ -417,7 +495,7 @@ class _GradientButtonState extends State<_GradientButton> {
         onTap: widget.onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+          padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 9),
           decoration: BoxDecoration(
             gradient: AppTheme.accentGradient,
             borderRadius: BorderRadius.circular(9),
@@ -479,7 +557,7 @@ class _OutlineButtonState extends State<_OutlineButton> {
         onTap: widget.onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
           decoration: BoxDecoration(
             color: _hovered ? AppTheme.bgElevated : Colors.transparent,
             borderRadius: BorderRadius.circular(9),
