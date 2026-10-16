@@ -25,7 +25,6 @@ if ! command -v flutter >/dev/null 2>&1; then
   export PATH="$FLUTTER_SDK_DIR/bin:$PATH"
 fi
 
-export FLUTTER_TOOL_ARGS="${FLUTTER_TOOL_ARGS:---no-version-check}"
 flutter config --no-analytics
 flutter pub get --enforce-lockfile
 
