@@ -1,0 +1,59 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# Flutter/Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication
+app.*.symbols
+
+# Obfuscation
+app.*.map.json
+
+# Android
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# Web
+
+# Env / secrets
+.env
+.env.*
+.env.local.json
+!.env.example.json
+google-services.json
+GoogleService-Info.plist
+firebase_options.local.dart
+*.jks
+*.p12
+*.key
+*.pem
+
+# Flutter SDK download leftovers
+*.zip
+
+/dist/

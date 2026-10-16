@@ -1,37 +1,37 @@
 name: fluxshare
-description: FluxShare - A browser-based file sharing and format conversion app.
-publish_to: 'none'
+description: Browser-based file conversion and sharing.
+publish_to: "none"
 version: 1.0.0+1
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  sdk: ">=3.4.0 <4.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
-  # Phase 1 — core
-  file_picker: ^8.0.0
-  image: ^4.1.7
-  pdf: ^3.10.8
+  supabase_flutter: ^2.8.0
+  archive: ^4.5.2
+  html: ^0.15.6
+  file_picker: ^8.1.7
   google_fonts: ^6.2.1
-  flutter_animate: ^4.5.0
-  dotted_border: ^2.1.0
-  percent_indicator: ^4.2.3
-  uuid: ^4.4.0
-  url_launcher: ^6.3.0
-  # Phase 2 — Firebase backend
-  firebase_core: ^3.6.0
-  firebase_auth: ^5.3.1
-  cloud_firestore: ^5.4.1
-  firebase_storage: ^12.3.2
-  google_sign_in: ^6.2.1
-  # Phase 2 — sharing
+  http: ^1.2.2
+  image: ^4.12.0
+  markdown: ^7.2.2
+  pdf: ^3.11.1
   qr_flutter: ^4.1.0
+  uuid: ^4.5.1
+  web: ^1.1.0
+  xml: ^7.1.0
 
 dev_dependencies:
+  flutter_lints: ^5.0.0
   flutter_test:
     sdk: flutter
-  flutter_lints: ^4.0.0
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/fonts/Roboto-Regular.ttf
+    - assets/fonts/Roboto-Bold.ttf
+    - assets/fonts/Roboto-Italic.ttf
+    - assets/fonts/Roboto-BoldItalic.ttf

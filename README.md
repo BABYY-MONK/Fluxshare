@@ -1,112 +1,39 @@
-# ⚡ FluxShare
+# FluxShare
 
-**Browser-based file conversion and sharing — built with Flutter Web.**
+FluxShare converts supported files locally in the browser or Windows desktop app. Files stay on the device unless the user chooses **Share**, which uploads the converted file to a private Supabase Storage bucket and creates a 24-hour link.
 
-Convert images (JPG, PNG, WEBP, GIF, BMP, TIFF) to other image formats or PDF entirely client-side. Upload to Firebase Cloud Storage, generate mobile-friendly QR codes, paste directly from clipboard (Ctrl+V), and track freemium conversion quotas.
+## Run locally
 
----
+Requirements: Flutter 3.47.7 and Chrome/Edge for web. Windows desktop builds require Visual Studio 2022 with the Desktop development with C++ workload.
 
-## 🚀 Quick Start
-
-### Prerequisites
-- Flutter SDK >= 3.0 (https://docs.flutter.dev/get-started/install)
-- Chrome or Edge browser
-
-### Run locally
-
-```bash
-cd fluxshare
+```powershell
 flutter pub get
-flutter run -d chrome
+flutter run -d chrome --dart-define-from-file=.env.local.json
 ```
 
-For a release build:
+`.env.local.json` is local-only and ignored by Git. Copy `.env.example.json` when setting up another checkout. The values are the Supabase project URL and publishable key; never put a Supabase service-role key in a client app.
+
+## Build the web app
+
 ```bash
-flutter build web --release
+bash scripts/build_web.sh
 ```
 
----
+Vercel runs the same pinned Flutter 3.47.7 build script. Configure `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and `FLUXSHARE_PUBLIC_URL` in Vercel for Production, Preview, and Development. They are build-time public client settings; RLS and bucket policies protect writes and files. The service-role key is not used.
 
-## 📁 Project Structure
+The generated web app is an installable PWA (manifest, service worker, and standalone display mode). Install it from a supported browser after deployment over HTTPS.
 
-```
-fluxshare/
-├── lib/
-│   ├── main.dart                    # App entry point + Firebase initialization
-│   ├── firebase_options.dart        # Firebase credentials config template
-│   ├── theme/
-│   │   └── app_theme.dart           # Design tokens, colors, ThemeData
-│   ├── models/
-│   │   └── file_item.dart           # FileItem, FileStatus, OutputFormat, cloud fields
-│   ├── services/
-│   │   ├── conversion_service.dart  # Image to image/PDF logic (client-side)
-│   │   ├── drag_drop_service.dart   # Browser drag-drop & Ctrl+V clipboard paste bridge
-│   │   └── firebase_service.dart    # Firebase Auth, Cloud Storage, Firestore & Quotas
-│   ├── screens/
-│   │   └── home_screen.dart         # Main workspace screen & state coordination
-│   └── widgets/
-│       ├── navbar.dart              # Top navigation bar with Auth & Quota badges
-│       ├── drop_zone.dart           # Animated upload zone
-│       ├── stats_bar.dart           # File queue stats + batch action buttons
-│       ├── file_card.dart           # Per-file card with status, formats & cloud sync
-│       ├── share_dialog.dart        # QR code & multi-platform share modal
-│       └── upgrade_modal.dart       # Free vs Pro comparison & upgrade modal
-└── web/
-    └── index.html                   # Splash screen + SEO meta
-```
+## Download the Windows app
 
----
+Run the **Windows release** GitHub Actions workflow manually, or push a `v*` tag. It runs tests, builds the Windows x64 release, compiles an Inno Setup installer, and publishes `FluxShare-Setup-x64.exe` as a workflow artifact. A tagged run also attaches the installer to the GitHub release. Set the repository Actions variables `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and `FLUXSHARE_PUBLIC_URL` to enable cloud sharing in the installer. Without them, local conversion still works.
 
-## ✨ Features
+## Supported conversions
 
-### Phase 1: Core Client-Side Engine
-- [x] Drag & drop file upload
-- [x] File picker (multi-select)
-- [x] Client-side image conversion (JPG, PNG, WEBP, GIF, BMP, TIFF)
-- [x] Image to PDF generation
-- [x] Per-file format selector
-- [x] Instant browser download
-- [x] Local session Blob URL copying
-- [x] Batch "Convert All"
-- [x] Dark, electric-blue theme with micro-animations
+- Images: JPG, PNG, WebP, GIF (first frame), BMP, and TIFF to JPG, PNG, WebP, or PDF.
+- Documents: DOCX, TXT, Markdown, HTML, and HTM to PDF, TXT, or HTML. DOCX-to-PDF needs a separately hosted `LIBREOFFICE_URL`; without it, the app returns an explicit error rather than silently dropping layout. DOCX-to-TXT extracts paragraph text locally.
+- Audio/video conversion is not offered because an ffmpeg.wasm runtime is not bundled.
+- Local conversion output downloads directly to the device. Cloud sharing is limited to 50 MB per file and three conversions per anonymous user per UTC day.
 
-### Phase 2: Cloud Backend & Sharing
-- [x] **Clipboard Paste (Ctrl+V)**: Paste screenshots directly from OS clipboard into the app
-- [x] **Firebase Authentication**: Seamless anonymous guest login + Google Sign-In
-- [x] **Firebase Cloud Storage**: Upload converted files with live progress tracking
-- [x] **Firestore File Registry**: Store file metadata, user ownership, and 24h expiration timestamps
-- [x] **QR Code Generation**: Instant mobile transfer via `qr_flutter` scan modal
-- [x] **Freemium Quota Management**: 3 free daily conversions for guests, with quota counter in navbar
-- [x] **Pro Upgrade Modal**: Feature tier comparison and Pro mode activation
-- [x] **Batch Cloud Sync**: "Sync All to Cloud" button for queued files
-- [x] **Web Share API**: Native system share sheet support on supported browsers
-- [x] **Graceful Fallback Mode**: Works out of the box with simulated cloud persistence if Firebase credentials have not yet been configured
+## Supabase setup
 
----
-
-## 🔧 Firebase Setup (Optional)
-
-FluxShare works out of the box with local simulations. To connect real Firebase Cloud Storage and Firestore:
-
-1. Create a Firebase project at [Firebase Console](https://console.firebase.google.com).
-2. Enable:
-   - **Authentication** (Anonymous + Google provider)
-   - **Cloud Firestore**
-   - **Cloud Storage**
-3. Add a Web App to your Firebase project.
-4. Replace the placeholders in `lib/firebase_options.dart` with your Web config values, or run:
-   ```bash
-   flutterfire configure
-   ```
-
----
-
-## 📊 Plans & Quotas (PRD Scope)
-
-| Feature | Free Tier | Pro Plan ($5/mo) |
-|---|---|---|
-| Daily Conversions | 3 per day | Unlimited |
-| Max File Size | 50 MB | 2 GB |
-| Link Expiration | 24 Hours | Permanent |
-| Cloud Storage Sync | Included | Included |
-| QR Code Mobile Share | Included | Included |
+The migrations under `supabase/migrations/` create `share_links`, `daily_usage`, and a private `shared-files` bucket with RLS. They have been applied to the `fluxshare` project in the MONK organization. Enable **Anonymous Sign-Ins** under Authentication → Providers before enabling sharing. Add CAPTCHA/rate limiting before public launch. Expired links stop granting access; automatic physical deletion of expired storage objects is not configured.

@@ -2,7 +2,12 @@ include: package:flutter_lints/flutter.yaml
 
 linter:
   rules:
-    avoid_web_libraries_in_flutter: false   # We intentionally use dart:html for web
     prefer_const_constructors: true
-    prefer_final_fields: true
-    use_key_in_widget_constructors: true
+    avoid_print: true
+
+analyzer:
+  exclude:
+    - functions/**
+    - build/**
+    - web/**
+    - windows/**

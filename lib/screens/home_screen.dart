@@ -1,404 +1,342 @@
-import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:uuid/uuid.dart';
 
-import '../models/file_item.dart';
-import '../services/conversion_service.dart';
-import '../services/drag_drop_service.dart';
-import '../services/firebase_service.dart';
+import '../models/file_formats.dart';
+import '../models/queued_file.dart';
+import '../services/conversion/conversion_service.dart';
+import '../services/download_service.dart';
+import '../services/supabase_service.dart';
 import '../theme/app_theme.dart';
-import '../widgets/drop_zone.dart';
-import '../widgets/file_card.dart';
-import '../widgets/navbar.dart';
-import '../widgets/share_dialog.dart';
-import '../widgets/stats_bar.dart';
-import '../widgets/upgrade_modal.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, required this.supabase});
+
+  final SupabaseService? supabase;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final _conversionService = ConversionService();
-  final _dragDropService   = DragDropService();
-  final _firebaseService   = FirebaseService();
-  final _uuid              = const Uuid();
-
-  final List<FileItem> _files = [];
-
-  // ─── Lifecycle ────────────────────────────────────────────────────────────
+  final _converter = ConversionService();
+  final _downloads = DownloadService();
+  final _uuid = const Uuid();
+  final List<QueuedFile> _files = [];
+  int _usedToday = 0;
+  bool _cloudReady = false;
+  String? _cloudMessage;
 
   @override
   void initState() {
     super.initState();
-    _dragDropService.initialize();
-    _dragDropService.onFileReceived.listen((received) {
-      _addFile(received.name, received.bytes);
-      _showSnack('📥 Added "${received.name}"');
-    });
+    _loadCloudState();
   }
 
-  @override
-  void dispose() {
-    _dragDropService.dispose();
-    super.dispose();
+  Future<void> _loadCloudState() async {
+    final service = widget.supabase;
+    if (service == null) return;
+    try {
+      final used = await service.loadDailyUsage();
+      if (mounted) setState(() { _usedToday = used; _cloudReady = true; });
+    } catch (error) {
+      if (mounted) setState(() => _cloudMessage = 'Cloud sharing is unavailable: $error');
+    }
   }
-
-  // ─── File handling ────────────────────────────────────────────────────────
 
   Future<void> _pickFiles() async {
     final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: [
+        ...FormatCatalog.imageInputs,
+        ...FormatCatalog.documentInputs,
+      ],
       allowMultiple: true,
       withData: true,
     );
     if (result == null) return;
-    for (final f in result.files) {
-      if (f.bytes != null) _addFile(f.name, f.bytes!);
+    for (final picked in result.files) {
+      final bytes = picked.bytes;
+      if (bytes != null) _addFile(picked.name, bytes);
     }
   }
 
   void _addFile(String name, Uint8List bytes) {
-    final ext = name.contains('.')
-        ? name.split('.').last.toLowerCase()
-        : '';
-    final supported = kSupportedConversions.containsKey(ext);
-    if (!supported) {
-      _showSnack('⚠️  .${ext.toUpperCase()} is not supported yet.', isError: true);
+    if (bytes.length > SupabaseService.maxFileBytes) {
+      _toast('Files must be 50 MB or smaller.');
+      return;
+    }
+    final family = FormatCatalog.familyFor(name);
+    final formats = FormatCatalog.outputsFor(family);
+    if (family == ConversionFamily.unknown || formats.isEmpty) {
+      _toast('That file type is not supported yet.');
+      return;
+    }
+    setState(() => _files.insert(0, QueuedFile(
+          id: _uuid.v4(),
+          originalName: name,
+          bytes: bytes,
+          family: family,
+          output: FormatCatalog.defaultOutput(family),
+          status: FileJobStatus.ready,
+        )));
+  }
+
+  Future<void> _convert(QueuedFile file) async {
+    final index = _files.indexWhere((f) => f.id == file.id);
+    if (index < 0 || file.status == FileJobStatus.converting) return;
+    if (!_cloudReady && _usedToday >= SupabaseService.freeDailyLimit) {
+      _toast('You have used the 3 local demo conversions for this session.');
       return;
     }
 
-    final formats = kSupportedConversions[ext]!;
-    final item = FileItem(
-      id: _uuid.v4(),
-      originalName: name,
-      originalBytes: bytes,
-      originalFormat: ext,
-      targetFormat: formats.first,
-    );
-    setState(() => _files.insert(0, item));
-  }
-
-  void _removeFile(FileItem item) => setState(() => _files.remove(item));
-
-  void _clearAll() => setState(() => _files.clear());
-
-  // ─── Conversion ───────────────────────────────────────────────────────────
-
-  Future<void> _convertFile(FileItem item) async {
-    if (!_firebaseService.currentQuota.canConvert) {
-      _showQuotaExceededDialog();
-      return;
-    }
-
-    setState(() {}); // Trigger rebuild to show spinner
-    await _conversionService.convert(item);
-    if (item.status == FileStatus.done) {
-      _firebaseService.recordConversion();
-    }
-    setState(() {}); // Show done state
-  }
-
-  Future<void> _convertAll() async {
-    final pending = _files.where((f) => f.status == FileStatus.ready).toList();
-    for (final f in pending) {
-      if (!_firebaseService.currentQuota.canConvert) {
-        _showQuotaExceededDialog();
-        break;
-      }
-      await _conversionService.convert(f);
-      if (f.status == FileStatus.done) {
-        _firebaseService.recordConversion();
-      }
-      setState(() {});
-    }
-  }
-
-  // ─── Cloud Sync / Upload ──────────────────────────────────────────────────
-
-  Future<void> _uploadToCloud(FileItem item) async {
-    if (item.isUploadingToCloud || item.isUploadedToCloud) return;
-
-    setState(() {
-      item.isUploadingToCloud = true;
-      item.uploadProgress = 0.05;
-    });
-
+    setState(() => _files[index] = file.copyWith(
+          status: FileJobStatus.converting,
+          clearError: true,
+          clearConverted: true,
+          clearShare: true,
+        ));
     try {
-      final url = await _firebaseService.uploadAndShareFile(
-        fileItem: item,
-        onProgress: (p) {
-          if (mounted) setState(() => item.uploadProgress = p);
-        },
+      final result = await _converter.convert(file);
+      if (_cloudReady && widget.supabase != null) {
+        final allowed = await widget.supabase!.consumeConversion();
+        if (!allowed) throw StateError('You have used today’s 3 free conversions. Try again tomorrow.');
+      }
+      if (!mounted) return;
+      final current = _files.indexWhere((f) => f.id == file.id);
+      if (current >= 0) {
+        setState(() {
+          _usedToday++;
+          _files[current] = _files[current].copyWith(
+            status: FileJobStatus.ready,
+            convertedBytes: result.bytes,
+            convertedName: result.fileName,
+          );
+        });
+      }
+    } catch (error) {
+      if (!mounted) return;
+      final current = _files.indexWhere((f) => f.id == file.id);
+      if (current >= 0) {
+        setState(() => _files[current] = _files[current].copyWith(
+              status: FileJobStatus.error,
+              errorMessage: error.toString().replaceFirst('Bad state: ', ''),
+            ));
+      }
+    }
+  }
+
+  Future<void> _share(QueuedFile file) async {
+    final service = widget.supabase;
+    final bytes = file.convertedBytes;
+    final name = file.convertedName;
+    if (service == null || bytes == null || name == null) {
+      _toast('Convert this file and configure Supabase before sharing.');
+      return;
+    }
+    if (!_cloudReady) {
+      _toast(_cloudMessage ?? 'Connecting to Supabase…');
+      return;
+    }
+    try {
+      final link = await service.createShareLink(
+        bytes: bytes,
+        fileName: name,
+        extension: FormatCatalog.extensionOf(name),
+      );
+      final index = _files.indexWhere((f) => f.id == file.id);
+      if (index >= 0) setState(() => _files[index] = _files[index].copyWith(shareUrl: link));
+      if (mounted) await _showShareDialog(name, link);
+    } catch (error) {
+      _toast('Could not create a share link: $error');
+    }
+  }
+
+  Future<void> _showShareDialog(String fileName, String url) => showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Link ready to share'),
+          content: SizedBox(
+            width: 320,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Text(fileName, textAlign: TextAlign.center),
+              const SizedBox(height: 14),
+              QrImageView(data: url, size: 220),
+              const SizedBox(height: 10),
+              const Text('Anyone with this link can download it for 24 hours.', textAlign: TextAlign.center),
+              const SizedBox(height: 8),
+              SelectableText(url, textAlign: TextAlign.center),
+            ]),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
+            FilledButton.icon(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: url));
+                if (context.mounted) Navigator.pop(context);
+                _toast('Link copied.');
+              },
+              icon: const Icon(Icons.copy),
+              label: const Text('Copy link'),
+            ),
+          ],
+        ),
       );
 
-      if (mounted) {
-        setState(() {
-          item.isUploadingToCloud = false;
-          item.isUploadedToCloud = true;
-        });
-
-        _showSnack('☁️ Uploaded to Cloud! Ready for cross-device share.');
-        ShareDialog.show(context, file: item);
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => item.isUploadingToCloud = false);
-        _showSnack('Upload failed: $e', isError: true);
-      }
+  Future<void> _download(QueuedFile file) async {
+    final bytes = file.convertedBytes;
+    final name = file.convertedName;
+    if (bytes == null || name == null) return;
+    try {
+      await _downloads.save(bytes, name);
+    } catch (error) {
+      _toast('Could not save the converted file: $error');
     }
   }
 
-  Future<void> _uploadAllToCloud() async {
-    final eligible = _files
-        .where((f) => f.status == FileStatus.done && !f.isUploadedToCloud)
-        .toList();
-
-    for (final f in eligible) {
-      await _uploadToCloud(f);
-    }
+  void _toast(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
-  // ─── Download / share ─────────────────────────────────────────────────────
-
-  void _download(FileItem item) => _conversionService.download(item);
-
-  Future<void> _copyLink(FileItem item) async {
-    await _conversionService.copyBlobUrlToClipboard(item);
-    _showSnack('🔗 Link copied to clipboard!');
-  }
-
-  // ─── UI helpers ───────────────────────────────────────────────────────────
-
-  void _showSnack(String msg, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg),
-      backgroundColor: isError ? AppTheme.error : AppTheme.bgElevated,
-      duration: const Duration(seconds: 3),
-    ));
-  }
-
-  void _showQuotaExceededDialog() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.bgCard,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-          side: const BorderSide(color: AppTheme.borderColor),
-        ),
-        title: Row(
-          children: [
-            const Icon(Icons.lock_clock_rounded, color: AppTheme.warning),
-            const SizedBox(width: 8),
-            Text('Daily Limit Reached',
-                style: GoogleFonts.inter(
-                    fontWeight: FontWeight.w700, color: AppTheme.textPrimary)),
-          ],
-        ),
-        content: Text(
-          'You have reached your 3 free conversions for today. Upgrade to FluxShare Pro for unlimited batch conversions and permanent cloud links.',
-          style: GoogleFonts.inter(fontSize: 14, color: AppTheme.textSecondary),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: Text('Close',
-                style: GoogleFonts.inter(color: AppTheme.textSecondary)),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              UpgradeModal.show(context);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.accent,
-            ),
-            child: Text('Upgrade to Pro',
-                style: GoogleFonts.inter(fontWeight: FontWeight.w700)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ─── Stats ────────────────────────────────────────────────────────────────
-
-  int get _doneCount        => _files.where((f) => f.status == FileStatus.done).length;
-  int get _pendingCount     => _files.where((f) => f.status == FileStatus.ready).length;
-  int get _errorCount       => _files.where((f) => f.status == FileStatus.error).length;
-  int get _cloudSyncedCount => _files.where((f) => f.isUploadedToCloud).length;
-  bool get _canUploadAll    => _files.any((f) => f.status == FileStatus.done && !f.isUploadedToCloud);
-
-  // ─── Build ────────────────────────────────────────────────────────────────
+  String _size(int bytes) => bytes < 1024 * 1024
+      ? '${(bytes / 1024).toStringAsFixed(1)} KB'
+      : '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
 
   @override
   Widget build(BuildContext context) {
-    final isWide = MediaQuery.of(context).size.width > 900;
-
+    final available = SupabaseService.freeDailyLimit - _usedToday;
     return Scaffold(
-      backgroundColor: AppTheme.bgDeep,
-      body: Column(
-        children: [
-          // ── Navbar ──────────────────────────────────────────────────────
-          const FluxNavbar(),
-
-          // ── Content ─────────────────────────────────────────────────────
-          Expanded(
-            child: SingleChildScrollView(
-              padding: EdgeInsets.symmetric(
-                horizontal: isWide ? 64 : 20,
-                vertical: 32,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // ── Hero text ─────────────────────────────────────────
-                  _HeroHeader(),
-                  const SizedBox(height: 32),
-
-                  // ── Drop zone ─────────────────────────────────────────
-                  DropZoneWidget(
-                    onPickFiles: _pickFiles,
-                  ).animate().fadeIn(duration: 600.ms).slideY(begin: 0.08, end: 0),
-                  const SizedBox(height: 24),
-
-                  // ── Stats + action bar ────────────────────────────────
-                  if (_files.isNotEmpty) ...[
-                    StatsBar(
-                      total: _files.length,
-                      done: _doneCount,
-                      pending: _pendingCount,
-                      errors: _errorCount,
-                      cloudSynced: _cloudSyncedCount,
-                      onConvertAll: _pendingCount > 0 ? _convertAll : null,
-                      onUploadAllToCloud: _canUploadAll ? _uploadAllToCloud : null,
-                      onClearAll: _clearAll,
-                    ).animate().fadeIn(duration: 400.ms),
-                    const SizedBox(height: 20),
-                  ],
-
-                  // ── File grid ─────────────────────────────────────────
-                  if (_files.isEmpty)
-                    _EmptyState()
-                  else
-                    _buildFileGrid(isWide),
-                ],
-              ),
-            ),
+      appBar: AppBar(
+        title: const Row(children: [
+          Icon(Icons.bolt_rounded, color: AppColors.electric),
+          SizedBox(width: 8),
+          Text('FluxShare'),
+        ]),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Center(child: Chip(
+              avatar: const Icon(Icons.bolt, size: 18),
+              label: Text(_cloudReady ? '$available free today' : 'Local mode'),
+            )),
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildFileGrid(bool isWide) {
-    final crossAxisCount = isWide ? 2 : 1;
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: crossAxisCount,
-        crossAxisSpacing: 16,
-        mainAxisSpacing: 16,
-        childAspectRatio: isWide ? 2.5 : 2.1,
-      ),
-      itemCount: _files.length,
-      itemBuilder: (context, i) {
-        final file = _files[i];
-        return FileCard(
-          key: ValueKey(file.id),
-          file: file,
-          onFormatChanged: (fmt) => setState(() => file.targetFormat = fmt),
-          onConvert: () => _convertFile(file),
-          onDownload: () => _download(file),
-          onCopyLink: () => _copyLink(file),
-          onRemove: () => _removeFile(file),
-          onUploadToCloud: () => _uploadToCloud(file),
-        ).animate(delay: Duration(milliseconds: i * 60)).fadeIn().slideY(begin: 0.06, end: 0);
-      },
-    );
-  }
-}
-
-// ── Hero header widget ──────────────────────────────────────────────────────
-
-class _HeroHeader extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        ShaderMask(
-          shaderCallback: (bounds) =>
-              AppTheme.accentGradient.createShader(bounds),
-          child: Text(
-            'Convert & Share\nInstantly',
-            style: GoogleFonts.inter(
-              fontSize: 48,
-              fontWeight: FontWeight.w800,
-              height: 1.1,
-              letterSpacing: -1.5,
-              color: Colors.white,
-            ),
-          ),
-        ).animate().fadeIn(duration: 700.ms).slideY(begin: -0.05, end: 0),
-        const SizedBox(height: 14),
-        Text(
-          'Drop files, pick them, or paste directly with Ctrl+V. Convert between JPG, PNG, WEBP, and PDF client-side — then generate instant QR codes and cloud sharing links.',
-          style: GoogleFonts.inter(
-            fontSize: 16,
-            color: AppTheme.textSecondary,
-            height: 1.6,
-          ),
-        ).animate(delay: 100.ms).fadeIn(duration: 600.ms),
-      ],
-    );
-  }
-}
-
-// ── Empty state ─────────────────────────────────────────────────────────────
-
-class _EmptyState extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.only(top: 40),
-        child: Column(
-          children: [
-            Container(
-              width: 80,
-              height: 80,
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: AppTheme.accentGradient,
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1040),
+          child: ListView(
+            padding: const EdgeInsets.all(24),
+            children: [
+              Text('Convert files. Share them securely.', style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
+              const SizedBox(height: 8),
+              Text('Conversions run in your browser. Shared files are encrypted at rest and their links expire after 24 hours.', style: Theme.of(context).textTheme.bodyLarge),
+              if (widget.supabase == null) ...[
+                const SizedBox(height: 18),
+                const _InfoBanner(text: 'Local conversion is ready. Add the Supabase URL and publishable key to enable cloud sharing and synced daily limits.'),
+              ] else if (_cloudMessage != null) ...[
+                const SizedBox(height: 18),
+                _InfoBanner(text: _cloudMessage!),
+              ],
+              const SizedBox(height: 24),
+              Card(
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(18),
+                  onTap: _pickFiles,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 24),
+                    child: Column(children: [
+                      const Icon(Icons.cloud_upload_outlined, size: 44, color: AppColors.electric),
+                      const SizedBox(height: 12),
+                      Text('Choose files to convert', style: Theme.of(context).textTheme.titleLarge),
+                      const SizedBox(height: 4),
+                      const Text('JPG, PNG, WebP, TXT, Markdown, HTML and DOCX · up to 50 MB per file'),
+                      const SizedBox(height: 16),
+                      FilledButton.icon(onPressed: _pickFiles, icon: const Icon(Icons.add), label: const Text('Select files')),
+                    ]),
+                  ),
+                ),
               ),
-              child: const Icon(Icons.folder_open_rounded,
-                  color: Colors.white, size: 36),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'No files queued',
-              style: GoogleFonts.inter(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w600,
-                  color: AppTheme.textPrimary),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Drag & drop, click "Choose Files", or press Ctrl+V to paste a screenshot.',
-              style: GoogleFonts.inter(
-                  fontSize: 14, color: AppTheme.textSecondary),
-            ),
-          ],
-        ).animate().fadeIn(duration: 500.ms).scale(begin: const Offset(0.95, 0.95)),
+              const SizedBox(height: 18),
+              for (final file in _files) _fileCard(file),
+              if (_files.isNotEmpty)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    onPressed: () => setState(() => _files.clear()),
+                    icon: const Icon(Icons.delete_outline),
+                    label: const Text('Clear queue'),
+                  ),
+                ),
+              const SizedBox(height: 20),
+              const Text('Files stay on your device unless you choose to create a share link. Shared files are removed from access after 24 hours.'),
+            ],
+          ),
+        ),
       ),
     );
   }
+
+  Widget _fileCard(QueuedFile file) {
+    final outputs = FormatCatalog.outputsFor(file.family);
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            const Icon(Icons.insert_drive_file_outlined, color: AppColors.electric),
+            const SizedBox(width: 12),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(file.originalName, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
+              Text(_size(file.size), style: const TextStyle(color: AppColors.muted)),
+            ])),
+            IconButton(tooltip: 'Remove', onPressed: () => setState(() => _files.removeWhere((f) => f.id == file.id)), icon: const Icon(Icons.close)),
+          ]),
+          if (file.errorMessage != null) ...[
+            const SizedBox(height: 8),
+            Text(file.errorMessage!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          ],
+          const SizedBox(height: 12),
+          Wrap(spacing: 10, runSpacing: 10, crossAxisAlignment: WrapCrossAlignment.center, children: [
+            DropdownButton<OutputFormat>(
+              value: file.output,
+              items: outputs.map((format) => DropdownMenuItem(value: format, child: Text(format.label))).toList(),
+              onChanged: file.status == FileJobStatus.converting ? null : (value) {
+                if (value == null) return;
+                final index = _files.indexWhere((f) => f.id == file.id);
+                setState(() => _files[index] = file.copyWith(output: value, status: FileJobStatus.ready, clearConverted: true, clearError: true, clearShare: true));
+              },
+            ),
+            FilledButton.icon(
+              onPressed: file.status == FileJobStatus.converting ? null : () => _convert(file),
+              icon: file.status == FileJobStatus.converting
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.transform),
+              label: Text(file.status == FileJobStatus.converting ? 'Converting…' : file.convertedBytes == null ? 'Convert' : 'Convert again'),
+            ),
+            if (file.convertedBytes != null) OutlinedButton.icon(onPressed: () => _download(file), icon: const Icon(Icons.download), label: Text('Download ${file.convertedName}')),
+            if (file.convertedBytes != null) OutlinedButton.icon(onPressed: () => _share(file), icon: const Icon(Icons.share), label: const Text('Share')),
+          ]),
+        ]),
+      ),
+    );
+  }
+}
+
+class _InfoBanner extends StatelessWidget {
+  const _InfoBanner({required this.text});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(color: AppColors.electric.withValues(alpha: .08), borderRadius: BorderRadius.circular(12)),
+        child: Text(text),
+      );
 }
