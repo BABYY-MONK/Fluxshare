@@ -19,6 +19,9 @@ if ! command -v flutter >/dev/null 2>&1; then
     tar -xJf "$FLUTTER_ARCHIVE" -C "$FLUTTER_SDK_DIR" --strip-components=1
     rm -f "$FLUTTER_ARCHIVE"
   fi
+  # Vercel runs builds as root while the extracted SDK may have another owner.
+  # Mark only this downloaded SDK checkout as safe for Flutter's git checks.
+  git config --global --add safe.directory "$FLUTTER_SDK_DIR"
   export PATH="$FLUTTER_SDK_DIR/bin:$PATH"
 fi
 
