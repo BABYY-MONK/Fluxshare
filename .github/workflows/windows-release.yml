@@ -29,7 +29,7 @@ jobs:
           --dart-define=SUPABASE_URL=${{ vars.SUPABASE_URL }}
           --dart-define=SUPABASE_PUBLISHABLE_KEY=${{ vars.SUPABASE_PUBLISHABLE_KEY }}
           --dart-define=FLUXSHARE_PUBLIC_URL=${{ vars.FLUXSHARE_PUBLIC_URL }}
-          --dart-define=LIBREOFFICE_URL=${{ vars.LIBREOFFICE_URL }}
+          --dart-define=LIBREOFFICE_URL=${{ vars.LIBREOFFICE_URL || 'https://fluxshare-converter-monks-projects-8f76cf4b.vercel.app/convert' }}
       - name: Compile Windows installer
         shell: pwsh
         run: |
@@ -54,4 +54,3 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/FluxShare-Setup-x64.exe
-
