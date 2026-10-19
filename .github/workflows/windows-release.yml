@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: fluxshare-release-${{ github.ref }}
+  group: fluxshare-release-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
