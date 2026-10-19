@@ -48,5 +48,5 @@ jobs:
       - name: Smoke-test the live Vercel converter
         working-directory: services/document-converter
         env:
-          FLUXSHARE_CONVERTER_URL: ${{ vars.LIBREOFFICE_URL || 'https://fluxshare-converter-monks-projects-8f76cf4b.vercel.app/convert' }}
+          FLUXSHARE_CONVERTER_URL: ${{ vars.LIBREOFFICE_URL || 'https://fluxshare-converter.vercel.app/convert' }}
         run: python test/smoke_live.py

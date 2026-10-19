@@ -35,7 +35,7 @@ jobs:
           --dart-define=SUPABASE_URL=${{ vars.SUPABASE_URL || 'https://sttizuudxfbemiazlhiq.supabase.co' }}
           --dart-define=SUPABASE_PUBLISHABLE_KEY=${{ vars.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_X0WSVFiaxl_YJiyqW4zJCQ_plQUR4TM' }}
           --dart-define=FLUXSHARE_PUBLIC_URL=${{ vars.FLUXSHARE_PUBLIC_URL || 'https://fluxshare-lac.vercel.app' }}
-          --dart-define=LIBREOFFICE_URL=${{ vars.LIBREOFFICE_URL || 'https://fluxshare-converter-monks-projects-8f76cf4b.vercel.app/convert' }}
+          --dart-define=LIBREOFFICE_URL=${{ vars.LIBREOFFICE_URL || 'https://fluxshare-converter.vercel.app/convert' }}
       - name: Compile Windows installer
         shell: pwsh
         run: |

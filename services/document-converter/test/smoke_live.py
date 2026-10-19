@@ -27,7 +27,10 @@ def post(payload: dict) -> dict:
         method="POST",
     )
     with urllib.request.urlopen(request, timeout=180) as response:
-        return json.loads(response.read())
+        body = response.read()
+        if not body:
+            raise AssertionError(f"{response.geturl()} returned an empty HTTP {response.status} response")
+        return json.loads(body)
 
 
 def encoded(data: bytes) -> str:
@@ -76,8 +79,12 @@ def tiny_wav() -> bytes:
 
 
 def main() -> None:
-    with urllib.request.urlopen(ENDPOINT.removesuffix("/convert") + "/health", timeout=30) as response:
-        assert json.loads(response.read()) == {"ok": True}
+    health_url = ENDPOINT.removesuffix("/convert") + "/health"
+    with urllib.request.urlopen(health_url, timeout=30) as response:
+        body = response.read()
+        if not body:
+            raise AssertionError(f"{response.geturl()} returned an empty HTTP {response.status} response")
+        assert json.loads(body) == {"ok": True}
 
     converted = post(
         {
