@@ -26,6 +26,7 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+/tool-data/
 
 # Symbolication
 app.*.symbols

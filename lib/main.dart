@@ -35,7 +35,7 @@ class FluxShareApp extends StatelessWidget {
   Widget build(BuildContext context) => MaterialApp(
         title: 'FluxShare',
         debugShowCheckedModeBanner: false,
-        theme: AppTheme.light(),
+        theme: AppTheme.futuristic(),
         home: shareId == null
             ? HomeScreen(supabase: supabase)
             : SharedFileScreen(supabase: supabase, shareId: shareId!),

@@ -46,5 +46,42 @@ class ServerConverter {
       return null;
     }
   }
-}
 
+  Future<ConversionResult> convertMedia({
+    required Uint8List bytes,
+    required String originalName,
+    required String target,
+  }) async {
+    if (!isConfigured) {
+      throw StateError('Audio/video conversion needs a configured media service.');
+    }
+    final response = await _client
+        .post(
+          Uri.parse(endpoint),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'operation': 'media',
+            'fileName': originalName,
+            'target': target,
+            'bytesBase64': base64Encode(bytes),
+          }),
+        )
+        .timeout(const Duration(minutes: 3));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw StateError('Media service returned HTTP ${response.statusCode}.');
+    }
+    final payload = jsonDecode(response.body) as Map<String, dynamic>;
+    final encoded = payload['bytesBase64'] as String?;
+    if (encoded == null) throw const FormatException('Media response is missing bytes.');
+    return ConversionResult(
+      bytes: base64Decode(encoded),
+      fileName: payload['fileName'] as String? ?? _withExtension(originalName, target),
+    );
+  }
+
+  String _withExtension(String name, String extension) {
+    final dot = name.lastIndexOf('.');
+    final stem = dot <= 0 ? name : name.substring(0, dot);
+    return '$stem.$extension';
+  }
+}

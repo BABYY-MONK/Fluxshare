@@ -1,0 +1,25 @@
+name: Clean up expired FluxShare links
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove expired files and share records
+        env:
+          CLEANUP_URL: ${{ secrets.FLUXSHARE_CLEANUP_URL }}
+          CLEANUP_SECRET: ${{ secrets.FLUXSHARE_CLEANUP_SECRET }}
+        run: |
+          test -n "$CLEANUP_URL" || { echo 'Missing FLUXSHARE_CLEANUP_URL'; exit 1; }
+          test -n "$CLEANUP_SECRET" || { echo 'Missing FLUXSHARE_CLEANUP_SECRET'; exit 1; }
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer $CLEANUP_SECRET" \
+            "$CLEANUP_URL"

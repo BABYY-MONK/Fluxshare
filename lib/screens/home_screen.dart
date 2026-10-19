@@ -8,10 +8,12 @@ import '../models/file_formats.dart';
 import '../models/queued_file.dart';
 import '../services/conversion/conversion_service.dart';
 import '../services/download_service.dart';
+import '../services/download_manager_platform.dart';
 import '../services/file_tools_service.dart';
 import '../services/pdf_tools_service.dart';
 import '../services/supabase_service.dart';
 import '../services/video_download_service.dart';
+import 'download_manager_screen_platform.dart';
 import '../theme/app_theme.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -67,6 +69,7 @@ class _HomeScreenState extends State<HomeScreen> {
       allowedExtensions: [
         ...FormatCatalog.imageInputs,
         ...FormatCatalog.documentInputs,
+        ...FormatCatalog.avInputs,
       ],
       allowMultiple: true,
       withData: true,
@@ -84,7 +87,7 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
     final family = FormatCatalog.familyFor(name);
-    final formats = FormatCatalog.outputsFor(family);
+    final formats = FormatCatalog.outputsFor(family, inputName: name);
     if (family == ConversionFamily.unknown || formats.isEmpty) {
       _toast('That file type is not supported yet.');
       return;
@@ -96,7 +99,7 @@ class _HomeScreenState extends State<HomeScreen> {
           originalName: name,
           bytes: bytes,
           family: family,
-          output: FormatCatalog.defaultOutput(family),
+          output: FormatCatalog.defaultOutput(family, inputName: name),
           status: FileJobStatus.ready,
         )));
   }
@@ -298,6 +301,26 @@ class _HomeScreenState extends State<HomeScreen> {
     }, 'Extracted pages downloaded as a ZIP.');
   }
 
+  Future<void> _rotatePdf() async {
+    final files = await _pickPdfs(multiple: false);
+    if (files.isEmpty || files.first.bytes == null) return;
+    final file = files.first;
+    await _runTool(() async {
+      final result = await _pdfTools.rotate(file.bytes!, originalName: file.name);
+      await _downloads.save(result.bytes, result.fileName);
+    }, 'Rotated PDF downloaded.');
+  }
+
+  Future<void> _ocrPdf() async {
+    final files = await _pickPdfs(multiple: false);
+    if (files.isEmpty || files.first.bytes == null) return;
+    final file = files.first;
+    await _runTool(() async {
+      final result = await _pdfTools.ocr(file.bytes!, originalName: file.name);
+      await _downloads.save(result.bytes, result.fileName);
+    }, 'Recognized text downloaded.');
+  }
+
   Future<void> _zipFiles() async {
     final result = await FilePicker.platform
         .pickFiles(type: FileType.any, allowMultiple: true, withData: true);
@@ -354,11 +377,33 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Row(children: [
-          Icon(Icons.bolt_rounded, color: AppColors.electric),
-          SizedBox(width: 8),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppColors.electric,
+              boxShadow: [
+                BoxShadow(color: AppColors.electric, blurRadius: 16),
+              ],
+            ),
+            child: SizedBox(
+              width: 30,
+              height: 30,
+              child: Icon(Icons.bolt_rounded, size: 20, color: AppColors.canvas),
+            ),
+          ),
+          SizedBox(width: 11),
           Text('FluxShare'),
         ]),
         actions: [
+          if (supportsWindowsDownloadManager)
+            IconButton(
+              tooltip: 'Download manager',
+              onPressed: () =>
+                  Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => const DownloadManagerScreen(),
+              )),
+              icon: const Icon(Icons.download_for_offline_outlined),
+            ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Center(
@@ -369,10 +414,22 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1040),
-          child: ListView(
+      body: Stack(
+        children: [
+          const Positioned(
+            top: -190,
+            right: -115,
+            child: _AmbientGlow(color: AppColors.violet, size: 420),
+          ),
+          const Positioned(
+            top: 280,
+            left: -240,
+            child: _AmbientGlow(color: AppColors.electricDark, size: 440),
+          ),
+          Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1040),
+              child: ListView(
             padding: const EdgeInsets.all(24),
             children: [
               TweenAnimationBuilder<double>(
@@ -386,16 +443,80 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: child,
                   ),
                 ),
-                child: Text('Convert files. Share them securely.',
-                    style: Theme.of(context)
-                        .textTheme
-                        .headlineMedium
-                        ?.copyWith(fontWeight: FontWeight.w800)),
+                child: Container(
+                  padding: const EdgeInsets.all(28),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(28),
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFF182B45), Color(0xFF101827), Color(0xFF1B1934)],
+                    ),
+                    border: Border.all(color: AppColors.outline),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.electric.withValues(alpha: .08),
+                        blurRadius: 38,
+                        spreadRadius: -10,
+                      ),
+                    ],
+                  ),
+                  child: LayoutBuilder(builder: (context, constraints) {
+                    final compact = constraints.maxWidth < 620;
+                    final title = Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+                          decoration: BoxDecoration(
+                            color: AppColors.electric.withValues(alpha: .10),
+                            borderRadius: BorderRadius.circular(30),
+                            border: Border.all(color: AppColors.electric.withValues(alpha: .24)),
+                          ),
+                          child: const Text(
+                            'YOUR CREATIVE FILE WORKSPACE',
+                            style: TextStyle(
+                              color: AppColors.electric,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 1.35,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        Text(
+                          'Convert files. Share them securely.',
+                          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -1.15,
+                                height: 1.08,
+                              ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          'One focused workspace for documents, media, and quick file tools.',
+                          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                color: AppColors.muted,
+                                height: 1.5,
+                              ),
+                        ),
+                      ],
+                    );
+                    if (compact) return title;
+                    return Row(children: [
+                      Expanded(child: title),
+                      const SizedBox(width: 24),
+                      const _FluxOrb(),
+                    ]);
+                  }),
+                ),
               ),
-              const SizedBox(height: 8),
-              Text(
-                  'Conversions run in your browser. Shared files are encrypted at rest and their links expire after 24 hours.',
-                  style: Theme.of(context).textTheme.bodyLarge),
+              const SizedBox(height: 14),
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                _statusPill(Icons.lock_outline, 'Private by default'),
+                _statusPill(Icons.bolt_outlined, 'Fast local tools'),
+                _statusPill(Icons.timer_outlined, '24-hour sharing'),
+              ]),
               if (widget.supabase == null) ...[
                 const SizedBox(height: 18),
                 const _InfoBanner(
@@ -406,27 +527,50 @@ class _HomeScreenState extends State<HomeScreen> {
                 _InfoBanner(text: _cloudMessage!),
               ],
               const SizedBox(height: 24),
-              Card(
+              Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(22),
+                  gradient: LinearGradient(
+                    colors: [AppColors.surfaceRaised, AppColors.card.withValues(alpha: .92)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  border: Border.all(color: AppColors.electric.withValues(alpha: .25)),
+                  boxShadow: [
+                    BoxShadow(color: AppColors.electric.withValues(alpha: .06), blurRadius: 28),
+                  ],
+                ),
                 child: InkWell(
-                  borderRadius: BorderRadius.circular(18),
+                  borderRadius: BorderRadius.circular(22),
                   onTap: _pickFiles,
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 36, horizontal: 24),
+                    padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 24),
                     child: Column(children: [
-                      const Icon(Icons.cloud_upload_outlined,
-                          size: 44, color: AppColors.electric),
-                      const SizedBox(height: 12),
-                      Text('Choose files to convert',
-                          style: Theme.of(context).textTheme.titleLarge),
-                      const SizedBox(height: 4),
-                      const Text(
-                          'JPG, PNG, WebP, TXT, Markdown, HTML and DOCX · up to 50 MB per file'),
+                      Container(
+                        width: 68,
+                        height: 68,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: AppColors.electric.withValues(alpha: .10),
+                          border: Border.all(color: AppColors.electric.withValues(alpha: .35)),
+                          boxShadow: [BoxShadow(color: AppColors.electric.withValues(alpha: .12), blurRadius: 22)],
+                        ),
+                        child: const Icon(Icons.upload_file_rounded,
+                            size: 32, color: AppColors.electric),
+                      ),
                       const SizedBox(height: 16),
+                      Text('Choose files to convert',
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Images · documents · audio · video',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: AppColors.muted),
+                      ),
+                      const SizedBox(height: 14),
                       FilledButton.icon(
                           onPressed: _pickFiles,
-                          icon: const Icon(Icons.add),
-                          label: const Text('Select files')),
+                          icon: const Icon(Icons.add_rounded),
+                          label: const Text('Select files · up to 50 MB')),
                     ]),
                   ),
                 ),
@@ -455,6 +599,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     () => _singlePdfTool(compress: true)),
                 _toolButton('Extract pages', Icons.content_cut,
                     () => _singlePdfTool(compress: false)),
+                _toolButton('Rotate PDF', Icons.rotate_90_degrees_cw,
+                    _rotatePdf),
+                _toolButton('OCR to text', Icons.document_scanner_outlined,
+                    _ocrPdf),
                 _toolButton('Create ZIP', Icons.folder_zip_outlined, _zipFiles),
               ]),
               const SizedBox(height: 12),
@@ -517,17 +665,38 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
               const SizedBox(height: 20),
-              const Text(
-                  'Files stay on your device unless you choose to create a share link. Shared files are removed from access after 24 hours.'),
+              Text(
+                'Files stay on your device unless you choose to share. Shared links expire after 24 hours.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppColors.muted),
+              ),
             ],
           ),
-        ),
+            ),
+          ),
+        ],
       ),
     );
   }
 
+  Widget _statusPill(IconData icon, String label) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: AppColors.surface.withValues(alpha: .8),
+          borderRadius: BorderRadius.circular(30),
+          border: Border.all(color: AppColors.outline),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 15, color: AppColors.mint),
+          const SizedBox(width: 7),
+          Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+        ]),
+      );
+
   Widget _fileCard(QueuedFile file) {
-    final outputs = FormatCatalog.outputsFor(file.family);
+    final outputs = FormatCatalog.outputsFor(
+      file.family,
+      inputName: file.originalName,
+    );
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0.0, end: 1.0),
       duration: const Duration(milliseconds: 320),
@@ -648,3 +817,58 @@ class _InfoBanner extends StatelessWidget {
       );
 }
 
+class _AmbientGlow extends StatelessWidget {
+  const _AmbientGlow({required this.color, required this.size});
+
+  final Color color;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: RadialGradient(
+              colors: [color.withValues(alpha: .13), color.withValues(alpha: 0)],
+            ),
+          ),
+        ),
+      );
+}
+
+class _FluxOrb extends StatelessWidget {
+  const _FluxOrb();
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: 152,
+        height: 152,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [AppColors.electric, AppColors.violet],
+          ),
+          boxShadow: [
+            BoxShadow(color: AppColors.electric.withValues(alpha: .28), blurRadius: 48),
+            BoxShadow(color: AppColors.violet.withValues(alpha: .22), blurRadius: 68),
+          ],
+        ),
+        child: Center(
+          child: Container(
+            width: 118,
+            height: 118,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: AppColors.navy,
+              border: Border.all(color: Colors.white.withValues(alpha: .24), width: 2),
+            ),
+            child: const Icon(Icons.auto_awesome_rounded,
+                size: 52, color: AppColors.electric),
+          ),
+        ),
+      );
+}

@@ -51,6 +51,28 @@ class PdfToolsService {
         'pageRanges': pageRanges,
       }, '${_stem(originalName)}-split.zip');
 
+  Future<ConversionResult> rotate(
+    Uint8List bytes, {
+    required String originalName,
+    int degrees = 90,
+  }) =>
+      _post({
+        'operation': 'rotate',
+        'fileName': originalName,
+        'bytesBase64': base64Encode(bytes),
+        'degrees': degrees,
+      }, '${_stem(originalName)}-rotated.pdf');
+
+  Future<ConversionResult> ocr(
+    Uint8List bytes, {
+    required String originalName,
+  }) =>
+      _post({
+        'operation': 'ocr',
+        'fileName': originalName,
+        'bytesBase64': base64Encode(bytes),
+      }, '${_stem(originalName)}-ocr.txt');
+
   Future<ConversionResult> _post(
       Map<String, Object?> body, String fallbackName) async {
     if (endpoint.isEmpty) {
@@ -61,7 +83,7 @@ class PdfToolsService {
         .post(Uri.parse(endpoint),
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode(body))
-        .timeout(const Duration(minutes: 3));
+        .timeout(const Duration(minutes: 15));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw StateError(
           'PDF service returned HTTP ${response.statusCode}: ${response.body}');
@@ -83,4 +105,3 @@ class PdfToolsService {
     return dot < 0 ? name : name.substring(0, dot);
   }
 }
-

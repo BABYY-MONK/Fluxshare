@@ -10,6 +10,8 @@ enum OutputFormat {
   mp3,
   wav,
   gif,
+  mp4,
+  webm,
 }
 
 extension OutputFormatX on OutputFormat {
@@ -30,8 +32,10 @@ class FormatCatalog {
   // GIFs are decoded as a still image (the first frame) for conversion.
   static const imageInputs = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'tiff', 'tif'];
   static const documentInputs = ['docx', 'txt', 'md', 'html', 'htm'];
-  // Audio/video formats are hidden until the ffmpeg.wasm bundle is shipped.
-  static const avInputs = <String>[];
+  static const avInputs = [
+    'mp4', 'm4v', 'mov', 'webm', 'mkv', 'avi', 'ogv',
+    'mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg',
+  ];
 
   static const imageOutputs = [
     OutputFormat.jpg,
@@ -44,7 +48,13 @@ class FormatCatalog {
     OutputFormat.txt,
     OutputFormat.html,
   ];
-  static const avOutputs = <OutputFormat>[];
+  static const avOutputs = [
+    OutputFormat.mp4,
+    OutputFormat.webm,
+    OutputFormat.mp3,
+    OutputFormat.wav,
+    OutputFormat.gif,
+  ];
 
   static String extensionOf(String name) {
     final dot = name.lastIndexOf('.');
@@ -62,21 +72,37 @@ class FormatCatalog {
     return ConversionFamily.unknown;
   }
 
-  static List<OutputFormat> outputsFor(ConversionFamily family) {
+  static List<OutputFormat> outputsFor(
+    ConversionFamily family, {
+    String? inputName,
+  }) {
     switch (family) {
       case ConversionFamily.image:
         return imageOutputs;
       case ConversionFamily.document:
         return documentOutputs;
       case ConversionFamily.audioVideo:
+        final input = extensionOf(inputName ?? '');
+        if (const {'mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg'}
+            .contains(input)) {
+          return const [OutputFormat.mp3, OutputFormat.wav];
+        }
+        if (inputName != null) {
+          return const [OutputFormat.mp4, OutputFormat.webm, OutputFormat.gif];
+        }
         return avOutputs;
       case ConversionFamily.unknown:
         return const [];
     }
   }
 
-  static OutputFormat defaultOutput(ConversionFamily family) {
-    final list = outputsFor(family);
+  static OutputFormat defaultOutput(ConversionFamily family, {String? inputName}) {
+    final list = outputsFor(family, inputName: inputName);
+    if (family == ConversionFamily.audioVideo) {
+      final input = extensionOf(inputName ?? '');
+      final audioInputs = {'mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg'};
+      return audioInputs.contains(input) ? OutputFormat.mp3 : OutputFormat.mp4;
+    }
     if (family == ConversionFamily.document && list.contains(OutputFormat.txt)) {
       return OutputFormat.txt;
     }
