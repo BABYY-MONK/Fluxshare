@@ -30,6 +30,7 @@ class ServerConverter {
         body: jsonEncode({
           'fileName': originalName,
           'bytesBase64': base64Encode(bytes),
+          'operation': 'convert',
           'target': 'pdf',
         }),
       );
@@ -37,7 +38,8 @@ class ServerConverter {
       final payload = jsonDecode(response.body) as Map<String, dynamic>;
       final encoded = payload['bytesBase64'] as String?;
       final name = payload['fileName'] as String? ??
-          originalName.replaceAll(RegExp(r'\.docx$', caseSensitive: false), '.pdf');
+          originalName.replaceAll(
+              RegExp(r'\.docx$', caseSensitive: false), '.pdf');
       if (encoded == null) return null;
       return ConversionResult(bytes: base64Decode(encoded), fileName: name);
     } catch (_) {
@@ -45,3 +47,4 @@ class ServerConverter {
     }
   }
 }
+

@@ -35,8 +35,12 @@ if [[ -n "${SUPABASE_URL:-}" && -n "${SUPABASE_PUBLISHABLE_KEY:-}" ]]; then
   if [[ -n "${FLUXSHARE_PUBLIC_URL:-}" ]]; then
     BUILD_DEFINES+=("--dart-define=FLUXSHARE_PUBLIC_URL=${FLUXSHARE_PUBLIC_URL}")
   fi
+  if [[ -n "${LIBREOFFICE_URL:-}" ]]; then
+    BUILD_DEFINES+=("--dart-define=LIBREOFFICE_URL=${LIBREOFFICE_URL}")
+  fi
 elif [[ -f .env.local.json ]]; then
   BUILD_DEFINES+=("--dart-define-from-file=.env.local.json")
 fi
 
 flutter build web --release "${BUILD_DEFINES[@]}"
+

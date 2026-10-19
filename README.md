@@ -19,21 +19,24 @@ flutter run -d chrome --dart-define-from-file=.env.local.json
 bash scripts/build_web.sh
 ```
 
-Vercel runs the same pinned Flutter 3.47.7 build script. Configure `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and `FLUXSHARE_PUBLIC_URL` in Vercel for Production, Preview, and Development. They are build-time public client settings; RLS and bucket policies protect writes and files. The service-role key is not used.
+Vercel runs the same pinned Flutter 3.47.7 build script. Configure `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and `FLUXSHARE_PUBLIC_URL` in Vercel for Production, Preview, and Development. Set `LIBREOFFICE_URL` to the HTTPS `/convert` URL after deploying the container in [`services/document-converter/README.md`](services/document-converter/README.md). These are build-time public client settings; RLS and bucket policies protect writes and files. The service-role key is not used.
 
 The generated web app is an installable PWA (manifest, service worker, and standalone display mode). Install it from a supported browser after deployment over HTTPS.
 
 ## Download the Windows app
 
-Run the **Windows release** GitHub Actions workflow manually, or push a `v*` tag. It runs tests, builds the Windows x64 release, compiles an Inno Setup installer, and publishes `FluxShare-Setup-x64.exe` as a workflow artifact. A tagged run also attaches the installer to the GitHub release. Set the repository Actions variables `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and `FLUXSHARE_PUBLIC_URL` to enable cloud sharing in the installer. Without them, local conversion still works.
+Run the **Windows release** GitHub Actions workflow manually, or push a `v*` tag. It runs tests, builds the Windows x64 release, compiles an Inno Setup installer, and publishes `FluxShare-Setup-x64.exe` as a workflow artifact. A tagged run also attaches the installer to the GitHub release. Set the repository Actions variables `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `FLUXSHARE_PUBLIC_URL`, and `LIBREOFFICE_URL` to enable cloud sharing and server-backed document/PDF tools in the installer. Without the converter URL, local conversions still work and server-backed tools explain that the endpoint is not configured.
 
 ## Supported conversions
 
 - Images: JPG, PNG, WebP, GIF (first frame), BMP, and TIFF to JPG, PNG, WebP, or PDF.
 - Documents: DOCX, TXT, Markdown, HTML, and HTM to PDF, TXT, or HTML. DOCX-to-PDF needs a separately hosted `LIBREOFFICE_URL`; without it, the app returns an explicit error rather than silently dropping layout. DOCX-to-TXT extracts paragraph text locally.
+- PDF/file tools: merge PDFs, compress page content streams, extract selected pages to a ZIP, and create ZIP archives locally. PDF operations use the LibreOffice/PDF service. Image inputs can also be converted to PDF in the browser.
+- Direct video downloads: HTTPS MP4, WebM, MOV, M4V, or OGV URLs up to 200 MB, when the source host permits browser cross-origin access. This does not extract videos from social platforms.
 - Audio/video conversion is not offered because an ffmpeg.wasm runtime is not bundled.
 - Local conversion output downloads directly to the device. Cloud sharing is limited to 50 MB per file and three conversions per anonymous user per UTC day.
 
 ## Supabase setup
 
 The migrations under `supabase/migrations/` create `share_links`, `daily_usage`, and a private `shared-files` bucket with RLS. They have been applied to the `fluxshare` project in the MONK organization. Enable **Anonymous Sign-Ins** under Authentication → Providers before enabling sharing. Add CAPTCHA/rate limiting before public launch. Expired links stop granting access; automatic physical deletion of expired storage objects is not configured.
+
