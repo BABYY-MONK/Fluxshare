@@ -26,7 +26,7 @@ if ! command -v flutter >/dev/null 2>&1; then
 fi
 
 flutter config --no-analytics
-flutter pub get --enforce-lockfile
+flutter pub get
 
 BUILD_DEFINES=()
 if [[ -n "${SUPABASE_URL:-}" && -n "${SUPABASE_PUBLISHABLE_KEY:-}" ]]; then
