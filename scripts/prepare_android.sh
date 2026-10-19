@@ -9,3 +9,13 @@ if [[ ! -d android ]]; then
 fi
 
 test -f android/app/build.gradle.kts -o -f android/app/build.gradle
+
+# Current Flutter plugins (including flutter_plugin_android_lifecycle) require
+# API 36 at compile time. Keep target/min SDK behavior controlled by Flutter;
+# this only raises the compile SDK used by Gradle.
+if [[ -f android/app/build.gradle.kts ]]; then
+  sed -i -E 's/^[[:space:]]*compileSdk[[:space:]]*=.*/    compileSdk = 36/' android/app/build.gradle.kts
+else
+  sed -i -E 's/^[[:space:]]*compileSdkVersion[[:space:]].*/    compileSdkVersion 36/' android/app/build.gradle
+fi
+
