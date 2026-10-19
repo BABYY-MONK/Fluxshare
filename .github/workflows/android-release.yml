@@ -40,7 +40,7 @@ jobs:
             sed -i -E 's/^([[:space:]]*)compileSdk(Version)?([[:space:]]*).*$/\1compileSdkVersion 36/' android/app/build.gradle
             grep -n 'compileSdk' android/app/build.gradle
           fi
-      - run: flutter pub get --enforce-lockfile
+      - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
       - name: Build installable Android APK
